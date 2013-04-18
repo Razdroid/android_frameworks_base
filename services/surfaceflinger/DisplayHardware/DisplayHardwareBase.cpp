@@ -40,10 +40,8 @@
 // ----------------------------------------------------------------------------
 namespace android {
 
-static char const * kSleepFileName = "/sys/power/wait_for_fb_sleep";
-static char const * kWakeFileName  = "/sys/power/wait_for_fb_wake";
-static char const * const kOldSleepFileName = "/sys/android_power/wait_for_fb_sleep";
-static char const * const kOldWakeFileName = "/sys/android_power/wait_for_fb_wake";
+static char const * const kSleepFileName = "/sys/power/wait_for_fb_sleep";
+static char const * const kWakeFileName  = "/sys/power/wait_for_fb_wake";
 
 // ----------------------------------------------------------------------------
 
@@ -74,6 +72,10 @@ bool DisplayHardwareBase::DisplayEventThread::threadLoop()
     int fd;
 
     fd = open(kSleepFileName, O_RDONLY, 0);
+    if (fd == -1 && errno == ENOENT) {
+        usleep(166667); // Sleep to avoid 100% CPU usage.
+        return true; // End silently if FB_EARLYSUSPEND appears to be missing, as on kernels >= 3.3
+    }
     do {
       err = read(fd, &buf, 1);
     } while (err < 0 && errno == EINTR);
@@ -111,21 +113,13 @@ status_t DisplayHardwareBase::DisplayEventThread::releaseScreen() const
 
 status_t DisplayHardwareBase::DisplayEventThread::readyToRun()
 {
-    if (access(kSleepFileName, R_OK) || access(kWakeFileName, R_OK)) {
-        if (access(kOldSleepFileName, R_OK) || access(kOldWakeFileName, R_OK)) {
-            LOGE("Couldn't open %s or %s", kSleepFileName, kWakeFileName);
-            return NO_INIT;
-        }
-        kSleepFileName = kOldSleepFileName;
-        kWakeFileName = kOldWakeFileName;
-    }
     return NO_ERROR;
 }
 
 status_t DisplayHardwareBase::DisplayEventThread::initCheck() const
 {
-    return (access(kSleepFileName, R_OK) == 0 && access(kWakeFileName, R_OK) == 0) ||
-           (access(kOldSleepFileName, R_OK) == 0 && access(kOldWakeFileName, R_OK) == 0) ? NO_ERROR : NO_INIT;
+    return ((access(kSleepFileName, R_OK) == 0 &&
+            access(kWakeFileName, R_OK) == 0)) ? NO_ERROR : NO_INIT;
 }
 
 // ----------------------------------------------------------------------------
