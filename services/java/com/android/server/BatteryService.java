@@ -33,6 +33,7 @@ import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.os.UEventObserver;
 import android.provider.Settings;
 import android.util.EventLog;
@@ -137,7 +138,10 @@ class BatteryService extends Binder {
     private int mBatteryFullARGB;
     private boolean mMultiColorLed;
 
+    private boolean hwNoBattery;
+
     private boolean mSentLowBatteryBroadcast = false;
+
 
     // Quiet hours support
     private boolean mQuietHoursEnabled = false;
@@ -160,7 +164,12 @@ class BatteryService extends Binder {
         mHasDockBattery = mContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_hasDockBattery);
 
-        mPowerSupplyObserver.startObserving("SUBSYSTEM=power_supply");
+        String hwNoBatteryProperty = SystemProperties.get("hw.nobattery");
+        hwNoBattery = Boolean.parseBoolean(hwNoBatteryProperty);
+
+        if (!hwNoBattery) {
+            mPowerSupplyObserver.startObserving("SUBSYSTEM=power_supply");
+        }
 
         // watch for invalid charger messages if the invalid_charger switch exists
         if (new File("/sys/devices/virtual/switch/invalid_charger/state").exists()) {
@@ -255,8 +264,24 @@ class BatteryService extends Binder {
 
     private native void native_update();
 
+    private void batteryStubUpdate() {
+        mAcOnline = true;
+        mUsbOnline = false;
+        mBatteryPresent = true;
+        mBatteryLevel = 100;
+        mBatteryVoltage = 4700;
+        mBatteryTemperature = 80;
+        mBatteryStatus = BatteryManager.BATTERY_STATUS_FULL;
+        mPlugType = BatteryManager.BATTERY_PLUGGED_AC;
+    }
+
     private synchronized final void update() {
-        native_update();
+        if(hwNoBattery) {
+            batteryStubUpdate();
+        } else {
+            native_update();
+        }
+
         processValues();
     }
 
