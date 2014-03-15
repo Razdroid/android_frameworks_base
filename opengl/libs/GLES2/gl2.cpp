@@ -39,24 +39,21 @@ using namespace android;
 #undef CALL_GL_API
 #undef CALL_GL_API_RETURN
 
-#if USE_FAST_TLS_KEY
+#define DEBUG_CALL_GL_API 0
 
-    #ifdef HAVE_TEGRA_ERRATA_657451
-        #define MUNGE_TLS(_tls) \
-            "bfi " #_tls ", " #_tls ", #20, #1 \n" \
-            "bic " #_tls ", " #_tls ", #1 \n"
-    #else
-        #define MUNGE_TLS(_tls) "\n"
-    #endif
+#if USE_FAST_TLS_KEY
 
     #ifdef HAVE_ARM_TLS_REGISTER
         #define GET_TLS(reg) \
-            "mrc p15, 0, " #reg ", c13, c0, 3 \n" \
-            MUNGE_TLS(reg)
+            "mrc p15, 0, " #reg ", c13, c0, 3 \n"
     #else
         #define GET_TLS(reg) \
+                       "push   {r0,r1,r2,r3,lr}                  \n"           \
             "mov   " #reg ", #0xFFFF0FFF      \n"  \
-            "ldr   " #reg ", [" #reg ", #-15] \n"
+                       "sub  " #reg "," #reg ",#0x1F     \n"           \
+                       "blx   " #reg "                                   \n"           \
+                       "mov   " #reg ", r0                       \n"           \
+                       "pop    {r0,r1,r2,r3,lr}                  \n"
     #endif
 
     #define API_ENTRY(_api) __attribute__((naked)) _api
@@ -64,8 +61,9 @@ using namespace android;
     #define CALL_GL_API(_api, ...)                              \
          asm volatile(                                          \
             GET_TLS(r12)                                        \
-            "ldr   r12, [r12, %[tls]] \n"                       \
             "cmp   r12, #0            \n"                       \
+            "ldrne   r12, [r12, %[tls]] \n"                     \
+            "cmpne   r12, #0            \n"                     \
             "ldrne pc,  [r12, %[api]] \n"                       \
             "mov   r0, #0             \n"                       \
             "bx    lr                 \n"                       \
@@ -83,10 +81,24 @@ using namespace android;
 
     #define API_ENTRY(_api) _api
 
+#if DEBUG_CALL_GL_API
+
     #define CALL_GL_API(_api, ...)                                       \
         gl_hooks_t::gl_t const * const _c = &getGlThreadSpecific()->gl;  \
-        _c->_api(__VA_ARGS__)
-    
+        _c->_api(__VA_ARGS__); \
+        GLenum status = GL_NO_ERROR; \
+        while ((status = glGetError()) != GL_NO_ERROR) { \
+            LOGD("[" #_api "] 0x%x", status); \
+        }
+
+#else
+
+    #define CALL_GL_API(_api, ...)                                       \
+        gl_hooks_t::gl_t const * const _c = &getGlThreadSpecific()->gl;  \
+        _c->_api(__VA_ARGS__);
+
+#endif
+
     #define CALL_GL_API_RETURN(_api, ...)                                \
         gl_hooks_t::gl_t const * const _c = &getGlThreadSpecific()->gl;  \
         return _c->_api(__VA_ARGS__)
